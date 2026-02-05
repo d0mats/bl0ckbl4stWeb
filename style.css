@@ -1,0 +1,299 @@
+:root {
+    /* Dark Minimalist Theme (Default) */
+    --bg-gradient: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --text-color: #f0f0f0;
+    --text-muted: #888;
+    --primary-font: 'Outfit', sans-serif;
+    --shadow-soft: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    --modal-bg: rgba(0, 0, 0, 0.85);
+    --modal-content-bg: #1a1a1a;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    touch-action: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    font-family: var(--primary-font);
+    background: var(--bg-gradient);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    color: var(--text-color);
+    display: flex;
+    flex-direction: row;
+    /* Allow sidebars + game */
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    /* Space between ads and game */
+}
+
+#app {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+}
+
+.game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 0 10px;
+}
+
+.game-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-color);
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.icon-btn {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: transform 0.2s;
+}
+
+.icon-btn:active {
+    transform: scale(0.9);
+}
+
+.score-container {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 8px 15px;
+    text-align: center;
+    box-shadow: var(--shadow-soft);
+    display: flex;
+    gap: 20px;
+}
+
+.score-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.score-label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+
+#score-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #2D3436;
+}
+
+#canvas-container {
+    flex: 1;
+    position: relative;
+    width: 100%;
+    border-radius: 20px;
+    /* Canvas will fit here */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+canvas {
+    /* Main game area */
+    border-radius: 12px;
+    /* Shadow for depth */
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+/* Modal */
+.modal {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--modal-bg);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.modal.hidden {
+    display: none;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.modal-content {
+    background: var(--modal-content-bg);
+    color: var(--text-color);
+    padding: 40px;
+    border-radius: 24px;
+    text-align: center;
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+.ad-placeholder {
+    width: 300px;
+    height: 250px;
+    /* Standard Medium Rectangle Ad size */
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px dashed rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    border-radius: 10px;
+}
+
+/* Side Ads (Skyscrapers) */
+.ad-sidebar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    padding: 20px;
+    z-index: 10;
+}
+
+.skyscraper-ad {
+    width: 160px;
+    /* Standard wide skyscraper width */
+    height: 600px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px dashed rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    display: flex;
+    /* Center placeholder text */
+    justify-content: center;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+/* Responsive: Hide side ads on smaller screens */
+@media (max-width: 1000px) {
+    .ad-sidebar {
+        display: none;
+    }
+}
+
+/* Footer */
+.game-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 10px 20px;
+    width: 100%;
+    margin-top: auto;
+    /* Push to bottom */
+}
+
+.creator-tag {
+    font-size: 0.9rem;
+    font-weight: 700;
+    opacity: 0.6;
+    letter-spacing: 0.5px;
+}
+
+.social-link {
+    color: var(--text-color);
+    /* Adapts to theme */
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.2s;
+    display: flex;
+    align-items: center;
+}
+
+.social-link svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+.social-link:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal-content h2 {
+    font-size: 2rem;
+    margin-bottom: 10px;
+    color: #FD79A8;
+}
+
+.modal-content p {
+    font-size: 1.2rem;
+    margin-bottom: 30px;
+    color: #636E72;
+}
+
+.glass-btn {
+    background: linear-gradient(135deg, #6C5CE7, #a29bfe);
+    border: none;
+    padding: 15px 40px;
+    border-radius: 50px;
+    color: white;
+    font-size: 1.1rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 10px 20px rgba(108, 92, 231, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.glass-btn:active {
+    transform: scale(0.95);
+    box-shadow: 0 5px 10px rgba(108, 92, 231, 0.2);
+}
+
+@keyframes popIn {
+    from {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
