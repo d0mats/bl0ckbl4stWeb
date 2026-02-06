@@ -8,9 +8,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem('blockBlastTheme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
     <link rel="stylesheet" href="style.css">
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4665075839689783"
-     crossorigin="anonymous"></script>
+        crossorigin="anonymous"></script>
 </head>
 
 <body>
@@ -28,15 +34,20 @@
         <!-- Header / Score -->
         <header class="game-header">
             <h1 class="game-title">amokado's Blast</h1>
-            <div class="score-container">
-                <div class="score-box">
-                    <span class="score-label">BEST</span>
-                    <span id="best-score-value">0</span>
+            <div class="header-right">
+                <div class="score-container">
+                    <div class="score-box">
+                        <span class="score-label">BEST</span>
+                        <span id="best-score-value">0</span>
+                    </div>
+                    <div class="score-box">
+                        <span class="score-label">SCORE</span>
+                        <span id="score-value">0</span>
+                    </div>
                 </div>
-                <div class="score-box">
-                    <span class="score-label">SCORE</span>
-                    <span id="score-value">0</span>
-                </div>
+                <button id="theme-toggle" class="icon-btn" aria-label="Toggle Theme">
+                    <span id="theme-icon">🌙</span>
+                </button>
             </div>
 
         </header>
@@ -57,18 +68,26 @@
             </a>
         </footer>
 
-        <!-- Game Over Modal -->
         <div id="game-over-modal" class="modal hidden">
             <div class="modal-content">
-                <h2>Game Over!</h2>
-                <p>Final Score: <span id="final-score">0</span></p>
+                <h2 class="game-over-title">GAME OVER</h2>
 
-                <!-- Google Ads Placeholder -->
-                <div class="ad-placeholder">
-                    <span>Reklam Alanı (Google Ads)</span>
+                <div class="score-display-container">
+                    <div class="score-card current">
+                        <span class="score-label">SCORE</span>
+                        <span id="final-score" class="score-value">0</span>
+                    </div>
+                    <div class="score-card best">
+                        <span class="score-label">BEST</span>
+                        <span id="best-score-modal" class="score-value">0</span>
+                    </div>
                 </div>
 
-                <button id="restart-btn" class="glass-btn">Play Again</button>
+                <div class="ad-placeholder">
+                    <span>Reklam Alanı</span>
+                </div>
+
+                <button id="restart-btn" class="glass-btn">PLAY AGAIN</button>
             </div>
         </div>
     </div>

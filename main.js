@@ -8,12 +8,32 @@ const CONFIG = {
     GRID_SIZE: 8,
     BLOCK_GAP: 6, // px
     ANIMATION_SPEED: 0.2, // spring duration
-    COLORS: [
-        '#E0E0E0', '#B0B0B0', '#808080', '#505050',
-        '#F5F5F5', '#999999', '#666666'
-    ],
+    COLORS: ['#4B4B4B'], // Default
     GRID_BG: 'rgba(255, 255, 255, 0.05)',
     GRID_CELL_BG: 'rgba(255, 255, 255, 0.08)'
+};
+
+const THEMES = {
+    dark: {
+        id: 'dark',
+        icon: '🌙',
+        colors: ['#4B4B4B'],
+        rgb: [75, 75, 75],
+        bgRGB: { top: [15, 15, 15], bottom: [26, 26, 26] },
+        gridBG: 'rgba(255, 255, 255, 0.05)',
+        gridCellBG: 'rgba(255, 255, 255, 0.08)',
+        accent: '#f0f0f0'
+    },
+    light: {
+        id: 'light',
+        icon: '☀️',
+        colors: ['#3498DB'], // Açık Mavi
+        rgb: [52, 152, 219],
+        bgRGB: { top: [245, 247, 250], bottom: [195, 207, 226] },
+        gridBG: 'rgba(44, 62, 80, 0.03)',
+        gridCellBG: 'rgba(44, 62, 80, 0.06)',
+        accent: '#2C3E50'
+    }
 };
 
 // --- Shape Definitions ---
@@ -71,8 +91,69 @@ const SHAPES = [
     [[1, 0, 0], [1, 1, 1]],
     [[0, 0, 1], [1, 1, 1]],
     [[1, 1, 1], [1, 0, 0]],
-    [[1, 1, 1], [0, 0, 1]]
+    [[1, 1, 1], [0, 0, 1]],
+
+    // Z-Shapes
+    [[1, 1, 0], [0, 1, 1]],
+    [[0, 1], [1, 1], [1, 0]],
+    // Mirror Z (S) Shapes
+    [[0, 1, 1], [1, 1, 0]],
+    [[1, 0], [1, 1], [0, 1]],
+    // T-Shapes
+    [[1, 1, 1], [0, 1, 0]],
+    [[0, 1, 0], [1, 1, 1]],
+    [[1, 0], [1, 1], [1, 0]],
+    [[0, 1], [1, 1], [0, 1]]
 ];
+
+
+// --- Class: SoundManager ---
+class SoundManager {
+    constructor() {
+        this.ctx = null;
+    }
+
+    init() {
+        if (!this.ctx) {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    playTick() {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.1);
+    }
+
+    playChime(count = 1) {
+        if (!this.ctx) return;
+        const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51]; // C5, E5, G5, C6, E6
+        const baseDelay = 0.08;
+        const numNotes = Math.min(notes.length, count + 1);
+
+        for (let i = 0; i < numNotes; i++) {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(notes[i], this.ctx.currentTime + i * baseDelay);
+            gain.gain.setValueAtTime(0.08, this.ctx.currentTime + i * baseDelay);
+            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * baseDelay + 0.6);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(this.ctx.currentTime + i * baseDelay);
+            osc.stop(this.ctx.currentTime + i * baseDelay + 0.6);
+        }
+    }
+}
 
 
 // --- Class: Game ---
@@ -102,15 +183,123 @@ class Game {
             blockAreaY: 0 // Y start of the bottom area
         };
 
-        // Interaction
-        this.draggingBlock = null; // { blockIndex, originalX, originalY, currentX, currentY }
+        // Interactions & Effects
+        this.draggingBlock = null;
         this.pointer = { x: 0, y: 0, isDown: false };
-
-        // Effects
-        this.floatingTexts = []; // Score popups
+        this.floatingTexts = [];
         this.particles = [];
+        this.potentialClears = { rows: [], cols: [] };
+        this.previewStartTime = 0;
+        this.lastPlacementKey = "";
 
-        this.init();
+        // NEW Advanced Features
+        this.sound = new SoundManager();
+        this.combo = 0;
+        this.shake = 0; // Screen shake intensity
+
+        // Theme System & Transitions
+        this.themeTransition = {
+            active: false,
+            start: 0,
+            duration: 500, // ms
+            from: null,
+            to: null
+        };
+
+        try {
+            this.currentTheme = localStorage.getItem('blockBlastTheme') || 'dark';
+            this.applyTheme(this.currentTheme, true);
+        } catch (e) {
+            this.applyTheme('dark', true);
+        }
+
+        const toggleBtn = document.getElementById('theme-toggle');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => this.toggleTheme());
+        }
+
+        // Delay init slightly to ensure container metrics are ready
+        setTimeout(() => this.init(), 60);
+    }
+
+    toggleTheme() {
+        const oldThemeId = this.currentTheme;
+        this.currentTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('blockBlastTheme', this.currentTheme);
+
+        // Start Canvas Transition
+        this.themeTransition.active = true;
+        this.themeTransition.start = Date.now();
+        this.themeTransition.from = THEMES[oldThemeId];
+        this.themeTransition.to = THEMES[this.currentTheme];
+
+        this.applyTheme(this.currentTheme, false);
+
+        // SYNC ALL BLOCKS: Update colors to new theme palette
+        const updateColor = (oldColor, oldPalette, newPalette) => {
+            const idx = oldPalette.indexOf(oldColor);
+            return newPalette[idx] || newPalette[0]; // Map by index
+        };
+
+        const oldPalette = THEMES[oldThemeId].colors;
+        const newPalette = THEMES[this.currentTheme].colors;
+
+        // Tray Blocks
+        this.blocks.forEach(block => {
+            block.color = updateColor(block.color, oldPalette, newPalette);
+        });
+
+        // Grid Blocks (placed)
+        for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+            for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                if (this.grid[r][c]) {
+                    this.grid[r][c] = updateColor(this.grid[r][c], oldPalette, newPalette);
+                }
+            }
+        }
+    }
+
+    lerpColor(color1, color2, factor) {
+        // color1/2 are [r,g,b] arrays
+        const r = Math.round(color1[0] + (color2[0] - color1[0]) * factor);
+        const g = Math.round(color1[1] + (color2[1] - color1[1]) * factor);
+        const b = Math.round(color1[2] + (color2[2] - color1[2]) * factor);
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    getThemeBG(themeId) {
+        return themeId === 'dark' ? [40, 40, 40] : [230, 235, 245];
+    }
+
+    getCellBG(themeId) {
+        return themeId === 'dark' ? [60, 60, 60] : [210, 220, 235];
+    }
+
+    applyTheme(themeId, immediate = false) {
+        if (!THEMES[themeId]) themeId = 'dark';
+        const theme = THEMES[themeId];
+        this.currentTheme = themeId;
+
+        document.documentElement.setAttribute('data-theme', themeId);
+        const iconEl = document.getElementById('theme-icon');
+        if (iconEl) iconEl.innerText = theme.icon;
+
+        // Update CONFIG
+        CONFIG.COLORS = theme.colors ? [...theme.colors] : ['#4B4B4B'];
+        CONFIG.GRID_BG = theme.gridBG;
+        CONFIG.GRID_CELL_BG = theme.gridCellBG;
+
+        // Cache theme for fast access in render
+        this.themeActive = theme;
+
+        if (immediate) {
+            this.themeTransition.active = false;
+            // Set initial background variables
+            const topArr = theme.bgRGB.top;
+            const botArr = theme.bgRGB.bottom;
+            document.documentElement.style.setProperty('--bg-dynamic-top', `rgb(${topArr[0]}, ${topArr[1]}, ${topArr[2]})`);
+            document.documentElement.style.setProperty('--bg-dynamic-bottom', `rgb(${botArr[0]}, ${botArr[1]}, ${botArr[2]})`);
+        }
     }
 
     init() {
@@ -131,47 +320,136 @@ class Game {
 
     resize() {
         const container = this.canvas.parentElement;
-        this.canvas.width = container.clientWidth;
-        this.canvas.height = container.clientHeight;
+        if (!container) return;
 
-        this.metrics.width = this.canvas.width;
-        this.metrics.height = this.canvas.height;
+        // Use precise client size
+        const w = container.clientWidth || window.innerWidth;
+        const h = container.clientHeight || window.innerHeight;
 
-        // Calculate Grid Size (fit within width with padding, or height top half)
+        this.canvas.width = w;
+        this.canvas.height = h;
+
+        this.metrics.width = w;
+        this.metrics.height = h;
+
+        // Adaptive Grid Size
         const padding = 20;
-        const availableWidth = this.metrics.width - (padding * 2);
-        const availableHeight = this.metrics.height * 0.65; // Grid takes top 65% approximately
+        const isPortrait = h > w;
 
-        const gridPixelSize = Math.min(availableWidth, availableHeight);
+        const availableWidth = w - (padding * 2);
+        // On mobile portrait, give the grid more vertical room
+        const availableHeight = isPortrait ? h * 0.5 : h * 0.6;
+
+        const gridPixelSize = Math.min(availableWidth, availableHeight, 500);
 
         this.metrics.gridSize = gridPixelSize;
-        this.metrics.cellSize = (gridPixelSize / CONFIG.GRID_SIZE);
+        this.metrics.cellSize = gridPixelSize / CONFIG.GRID_SIZE;
 
-        this.metrics.gridX = (this.metrics.width - gridPixelSize) / 2;
-        this.metrics.gridY = padding + 20; // Top padding
+        this.metrics.gridX = (w - gridPixelSize) / 2;
+        // On portrait, move it slightly down to leave room for header
+        this.metrics.gridY = isPortrait ? 80 : padding + 10;
 
-        this.metrics.blockAreaY = this.metrics.gridY + gridPixelSize + 40;
+        // Block Area (Tray) - Push to bottom on mobile
+        const traySpacing = isPortrait ? 60 : 40;
+        this.metrics.blockAreaY = this.metrics.gridY + gridPixelSize + traySpacing;
 
-        // Reposition static blocks if resize happens during play
         this.updateBlockPositions();
     }
 
     spawnBlocks() {
         this.blocks = [];
+        const fittingShapes = this.getFittingShapes();
+
+        // Calculate Grid Fullness
+        let occupied = 0;
+        for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+            for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                if (this.grid[r][c] !== null) occupied++;
+            }
+        }
+        const fullness = occupied / (CONFIG.GRID_SIZE * CONFIG.GRID_SIZE);
+
+        let candidates = [];
+        let attempts = 0;
+        const MAX_ATTEMPTS = 5;
+
+        while (candidates.length < 3 && attempts < MAX_ATTEMPTS) {
+            attempts++;
+            const currentPool = [];
+
+            // 1. Generate a pool of shapes that favor "Good" placements
+            for (const shape of fittingShapes) {
+                let bestScore = -Infinity;
+                // Evaluate all possible placements for this shape
+                for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+                    for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                        if (this.canPlace(shape, c, r)) {
+                            const simGrid = this.simulatePlacement(this.grid, shape, c, r);
+                            const score = this.evaluateBoard(simGrid);
+                            if (score > bestScore) bestScore = score;
+                        }
+                    }
+                }
+                currentPool.push({ shape, score: bestScore });
+            }
+
+            // 2. Sample 3 blocks, prioritizing those with higher scores (better for board health)
+            // Sort by score
+            currentPool.sort((a, b) => b.score - a.score);
+
+            // Difficulty adjustment:
+            // High fullness (>70%): Take only from top 30% of pool
+            // Mid fullness (30-70%): Mix
+            // Low fullness (<30%): Favor larger/challenging blocks
+            let poolToUse = [];
+            if (fullness > 0.7) {
+                poolToUse = currentPool.slice(0, Math.ceil(currentPool.length * 0.3));
+            } else if (fullness < 0.3) {
+                // Tahta çok boşsa skorun en iyisine bakmak yerine rastgele/zorlayıcı seç
+                poolToUse = currentPool.slice(Math.floor(currentPool.length * 0.4));
+            } else {
+                poolToUse = currentPool.slice(0, Math.ceil(currentPool.length * 0.7));
+            }
+
+            if (poolToUse.length === 0) poolToUse = currentPool;
+
+            // Pick 3 from pool
+            const selection = [];
+            for (let j = 0; j < 3; j++) {
+                const item = poolToUse[Math.floor(Math.random() * poolToUse.length)];
+                selection.push(item.shape);
+            }
+
+            // 3. SEQUENCE VALIDATION: Check if ALL THREE can be placed in SOME order
+            if (this.checkSequenceStep(this.grid, selection)) {
+                candidates = selection;
+                break;
+            }
+        }
+
+        // Fallback if no valid sequence found after MAX_ATTEMPTS
+        if (candidates.length < 3) {
+            // Pick smallest shapes if stuck
+            const smallShapes = SHAPES.filter(s => s.flat().filter(x => x === 1).length <= 2);
+            for (let i = 0; i < 3; i++) {
+                candidates.push(smallShapes[Math.floor(Math.random() * smallShapes.length)]);
+            }
+        }
+
         for (let i = 0; i < 3; i++) {
-            const shapeProto = SHAPES[Math.floor(Math.random() * SHAPES.length)];
             const color = CONFIG.COLORS[Math.floor(Math.random() * CONFIG.COLORS.length)];
             this.blocks.push({
-                shape: shapeProto, // 2D array
+                shape: candidates[i],
                 color: color,
-                x: 0, // Will be calculated
+                x: 0,
                 y: 0,
-                baseScale: 0.6, // Smaller in tray
+                baseScale: 0.6,
                 currentScale: 0.6,
                 isDragging: false,
                 placed: false
             });
         }
+
         this.updateBlockPositions();
         this.checkGameOver();
     }
@@ -203,6 +481,9 @@ class Game {
     handlePointerDown(e) {
         if (this.isGameOver) return;
 
+        // Ensure AudioContext is started on first interaction
+        this.sound.init();
+
         const pos = this.getPointerPos(e);
         this.pointer.isDown = true;
         this.pointer.x = pos.x;
@@ -224,9 +505,10 @@ class Game {
                 // We want: block.x = mouse.x
                 //          block.y = mouse.y - 120 (Lifted up)
 
+                const isTouch = e.type.startsWith('touch');
                 this.draggingBlock = {
                     index: i,
-                    liftHeight: 120, // How far up it floats
+                    liftHeight: isTouch ? 150 : 100, // Higher lift for fingers
                     startScale: block.currentScale
                 };
 
@@ -235,7 +517,7 @@ class Game {
 
                 // Snap to lifted position immediately
                 block.x = pos.x;
-                block.y = pos.y - 120;
+                block.y = pos.y - this.draggingBlock.liftHeight;
                 break;
             }
         }
@@ -329,8 +611,169 @@ class Game {
         return true;
     }
 
+    getFittingShapes() {
+        const fitting = [];
+        for (const shape of SHAPES) {
+            let canFit = false;
+            for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+                for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                    if (this.canPlace(shape, c, r)) {
+                        canFit = true;
+                        break;
+                    }
+                }
+                if (canFit) break;
+            }
+            if (canFit) fitting.push(shape);
+        }
+        return fitting;
+    }
+
+    evaluateBoard(grid) {
+        let score = 0;
+        let occupied = 0;
+
+        // 1. Fullness Penalty
+        for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+            for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                if (grid[r][c] !== null) occupied++;
+            }
+        }
+        const fullness = occupied / (CONFIG.GRID_SIZE * CONFIG.GRID_SIZE);
+        score -= fullness * 100;
+
+        // 2. Line Potential (Rows/Cols nearly full are good)
+        for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+            let rowCount = 0;
+            for (let c = 0; c < CONFIG.GRID_SIZE; c++) if (grid[r][c] !== null) rowCount++;
+            if (rowCount > 0 && rowCount < CONFIG.GRID_SIZE) {
+                score += (rowCount / CONFIG.GRID_SIZE) * 10;
+            }
+        }
+        for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+            let colCount = 0;
+            for (let r = 0; r < CONFIG.GRID_SIZE; r++) if (grid[r][c] !== null) colCount++;
+            if (colCount > 0 && colCount < CONFIG.GRID_SIZE) {
+                score += (colCount / CONFIG.GRID_SIZE) * 10;
+            }
+        }
+
+        // 3. Fragmentation Penalty (Isolated empty cells are bad)
+        for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+            for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                if (grid[r][c] === null) {
+                    let neighbors = 0;
+                    if (r > 0 && grid[r - 1][c] !== null) neighbors++;
+                    if (r < CONFIG.GRID_SIZE - 1 && grid[r + 1][c] !== null) neighbors++;
+                    if (c > 0 && grid[r][c - 1] !== null) neighbors++;
+                    if (c < CONFIG.GRID_SIZE - 1 && grid[r][c + 1] !== null) neighbors++;
+                    if (neighbors >= 3) score -= 15;
+                }
+            }
+        }
+
+        return score;
+    }
+
+    simulatePlacement(grid, shape, col, row) {
+        const newGrid = grid.map(r => [...r]);
+        for (let r = 0; r < shape.length; r++) {
+            for (let c = 0; c < shape[r].length; c++) {
+                if (shape[r][c] === 1) {
+                    newGrid[row + r][col + c] = 'SIM';
+                }
+            }
+        }
+
+        // Apply clears in simulation
+        let clearedRows = [];
+        for (let y = 0; y < CONFIG.GRID_SIZE; y++) {
+            if (newGrid[y].every(cell => cell !== null)) clearedRows.push(y);
+        }
+        clearedRows.forEach(y => newGrid[y].fill(null));
+
+        for (let x = 0; x < CONFIG.GRID_SIZE; x++) {
+            let full = true;
+            for (let y = 0; y < CONFIG.GRID_SIZE; y++) if (newGrid[y][x] === null) { full = false; break; }
+            if (full) {
+                for (let y = 0; y < CONFIG.GRID_SIZE; y++) newGrid[y][x] = null;
+            }
+        }
+        return newGrid;
+    }
+
+    checkSequenceStep(grid, remainingShapes) {
+        if (remainingShapes.length === 0) return true;
+
+        const shape = remainingShapes[0];
+        const nextRemaining = remainingShapes.slice(1);
+
+        for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+            for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                // Check if can place (using a local canPlace logic on grid)
+                let canFit = true;
+                for (let sr = 0; sr < shape.length; sr++) {
+                    for (let sc = 0; sc < shape[sr].length; sc++) {
+                        if (shape[sr][sc] === 1) {
+                            const tr = r + sr;
+                            const tc = c + sc;
+                            if (tr < 0 || tr >= CONFIG.GRID_SIZE || tc < 0 || tc >= CONFIG.GRID_SIZE || grid[tr][tc] !== null) {
+                                canFit = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!canFit) break;
+                }
+
+                if (canFit) {
+                    const nextGrid = this.simulatePlacement(grid, shape, c, r);
+                    if (this.checkSequenceStep(nextGrid, nextRemaining)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    getPotentialClears(shape, startCol, startRow) {
+        const rows = [];
+        const cols = [];
+
+        // Create a temporary representation of the grid after placement
+        const tempGrid = this.grid.map(row => [...row]);
+        for (let r = 0; r < shape.length; r++) {
+            for (let c = 0; c < shape[r].length; c++) {
+                if (shape[r][c] === 1) {
+                    tempGrid[startRow + r][startCol + c] = 'PREVIEW';
+                }
+            }
+        }
+
+        // Check rows
+        for (let y = 0; y < CONFIG.GRID_SIZE; y++) {
+            if (tempGrid[y].every(cell => cell !== null)) {
+                rows.push(y);
+            }
+        }
+
+        // Check cols
+        for (let x = 0; x < CONFIG.GRID_SIZE; x++) {
+            let colFilled = true;
+            for (let y = 0; y < CONFIG.GRID_SIZE; y++) {
+                if (tempGrid[y][x] === null) {
+                    colFilled = false;
+                    break;
+                }
+            }
+            if (colFilled) cols.push(x);
+        }
+
+        return { rows, cols };
+    }
+
     placeBlock(block, c, r) {
         block.placed = true;
+        this.sound.playTick();
 
         // Update grid
         for (let py = 0; py < block.shape.length; py++) {
@@ -414,10 +857,41 @@ class Game {
         });
 
         if (linesCleared > 0) {
-            // Scoring: 10 per block placed + 100 per line * multiplier
-            const points = linesCleared * 100 * linesCleared; // Exponential reward
+            this.combo++;
+
+            // Scoring: 10 per block placed + 100 per line * multiplier * combo
+            const points = linesCleared * 100 * linesCleared * this.combo;
             this.updateScore(points);
+
+            // Screen Shake for big clears
+            if (linesCleared >= 1) {
+                this.shake = Math.min(20, linesCleared * 6);
+            }
+
+            // Play Chime based on lines cleared
+            this.sound.playChime(linesCleared);
+
+            // Floating Text for the score
+            // Find roughly the center of the cleared area for the text spawn
+            let targetX = this.metrics.width / 2;
+            let targetY = this.metrics.height / 2;
+
+            if (rowsToClear.length > 0) {
+                targetY = this.metrics.gridY + (rowsToClear[Math.floor(rowsToClear.length / 2)] * this.metrics.cellSize);
+            } else if (colsToClear.length > 0) {
+                targetX = this.metrics.gridX + (colsToClear[Math.floor(colsToClear.length / 2)] * this.metrics.cellSize);
+            }
+
+            this.floatingTexts.push({
+                x: targetX,
+                y: targetY,
+                text: `+${points}${this.combo > 1 ? ` (x${this.combo})` : ''}`,
+                life: 1.0,
+                color: this.themeActive.accent
+            });
+
         } else {
+            this.combo = 0; // Reset combo if no line cleared
             this.updateScore(10); // Standard placement points
         }
     }
@@ -464,9 +938,35 @@ class Game {
 
     gameOver() {
         this.isGameOver = true;
+
+        // Populate scores in modal
         document.getElementById('final-score').innerText = this.score;
+        document.getElementById('best-score-modal').innerText = this.highScore;
+
         document.getElementById('game-over-modal').classList.remove('hidden');
-        document.getElementById('restart-btn').onclick = () => window.location.reload();
+        document.getElementById('restart-btn').onclick = () => {
+            document.getElementById('game-over-modal').classList.add('hidden');
+            this.reset();
+        };
+    }
+
+    reset() {
+        // Reset state
+        this.grid = Array(CONFIG.GRID_SIZE).fill().map(() => Array(CONFIG.GRID_SIZE).fill(null));
+        this.blocks = [];
+        this.score = 0;
+        this.isGameOver = false;
+        this.combo = 0;
+        this.shake = 0;
+        this.floatingTexts = [];
+        this.particles = [];
+        this.potentialClears = { rows: [], cols: [] };
+
+        // Update UI
+        document.getElementById('score-value').innerText = '0';
+
+        // Re-init spawning
+        this.spawnBlocks();
     }
 
     // --- Rendering ---
@@ -483,11 +983,20 @@ class Game {
         this.ctx.closePath();
     }
 
-    renderGrid() {
+    renderGrid(themeFactor = 1.0) {
         // Background Grid
         const gs = this.metrics.cellSize;
         const gap = CONFIG.BLOCK_GAP;
         const r = 4; // corner radius
+        const now = Date.now();
+
+        // Calculate blended grid cell BG
+        let currentCellBG = CONFIG.GRID_CELL_BG;
+        if (this.themeTransition.active) {
+            const fromCellBG = this.getCellBG(this.themeTransition.from.id);
+            const toCellBG = this.getCellBG(this.themeTransition.to.id);
+            currentCellBG = this.lerpColor(fromCellBG, toCellBG, themeFactor);
+        }
 
         for (let y = 0; y < CONFIG.GRID_SIZE; y++) {
             for (let x = 0; x < CONFIG.GRID_SIZE; x++) {
@@ -496,13 +1005,36 @@ class Game {
                 const size = gs - gap;
 
                 // Empty Cell
-                this.ctx.fillStyle = CONFIG.GRID_CELL_BG;
+                this.ctx.fillStyle = currentCellBG;
                 this.drawRoundedRect(drawX, drawY, size, size, r);
                 this.ctx.fill();
 
-                // Occupied Cell
-                if (this.grid[y][x]) {
-                    this.ctx.fillStyle = this.grid[y][x];
+                // Check if this cell is part of a potential clear
+                const isPotential = this.potentialClears.rows.includes(y) || this.potentialClears.cols.includes(x);
+
+                // Use a one-shot linear transition to white
+                let color = this.grid[y][x];
+                if (isPotential) {
+                    const duration = 300; // ms
+                    const elapsed = now - this.previewStartTime;
+                    const previewProgress = Math.min(1, elapsed / duration);
+
+                    // Interpolate between theme base and white
+                    const baseRGB = this.themeActive.rgb;
+                    const r_val = Math.round(baseRGB[0] + (255 - baseRGB[0]) * previewProgress);
+                    const g_val = Math.round(baseRGB[1] + (255 - baseRGB[1]) * previewProgress);
+                    const b_val = Math.round(baseRGB[2] + (255 - baseRGB[2]) * previewProgress);
+                    color = `rgb(${r_val}, ${g_val}, ${b_val})`;
+                }
+
+                if (color) {
+                    this.ctx.fillStyle = color;
+
+                    if (this.themeTransition.active && !isPotential) {
+                        const fromRGB = this.themeTransition.from.rgb;
+                        const toRGB = this.themeTransition.to.rgb;
+                        this.ctx.fillStyle = this.lerpColor(fromRGB, toRGB, themeFactor);
+                    }
 
                     // Slight shadow
                     this.ctx.shadowColor = 'rgba(0,0,0,0.1)';
@@ -514,50 +1046,131 @@ class Game {
 
                     this.ctx.shadowColor = 'transparent'; // reset
 
-                    // Highlight (bevel effect)
-                    this.ctx.fillStyle = 'rgba(255,255,255,0.2)';
-                    this.ctx.beginPath();
-                    this.ctx.arc(drawX + size * 0.2, drawY + size * 0.2, size * 0.1, 0, Math.PI * 2);
-                    this.ctx.fill();
+                    if (isPotential) {
+                        // Sparkle Effect
+                        this.ctx.fillStyle = 'rgba(255,255,255,0.8)';
+                        for (let i = 0; i < 3; i++) {
+                            const offset = (now + (i * 1000)) % 1000 / 1000;
+                            const sx = drawX + (Math.sin(now * 0.01 + i) * 0.4 + 0.5) * size;
+                            const sy = drawY + (Math.cos(now * 0.015 + i * 2) * 0.4 + 0.5) * size;
+                            const sSize = (1 - offset) * 3;
+                            if (sSize > 0) {
+                                this.ctx.fillRect(sx - sSize / 2, sy - sSize / 2, sSize, sSize);
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     render() {
-        // Clear
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        // Calculate Theme Transition
+        let themeFactor = 1.0;
+        if (this.themeTransition.active) {
+            const elapsed = Date.now() - this.themeTransition.start;
+            themeFactor = Math.min(1.0, elapsed / this.themeTransition.duration);
 
-        // Draw Grid
-        this.renderGrid();
+            // Background Interpolation (Top & Bottom)
+            const fromBG = this.themeTransition.from.bgRGB;
+            const toBG = this.themeTransition.to.bgRGB;
 
-        // Draw Blocks (Tray)
-        // We draw placed blocks as part of the grid above.
-        // Here we draw the 3 draggable ones.
-        this.blocks.forEach(block => {
-            if (block.placed) return;
-            this.drawBlock(block);
-        });
+            const currentTop = this.lerpColor(fromBG.top, toBG.top, themeFactor);
+            const currentBottom = this.lerpColor(fromBG.bottom, toBG.bottom, themeFactor);
 
-        // Draw Particles
-        this.updateAndDrawParticles();
+            document.documentElement.style.setProperty('--bg-dynamic-top', currentTop);
+            document.documentElement.style.setProperty('--bg-dynamic-bottom', currentBottom);
 
-        // Debug Ghost (Optional: Show where it lands)
+            if (themeFactor >= 1.0) {
+                this.themeTransition.active = false;
+            }
+        }
+
+        // Handle Screen Shake
+        this.ctx.save();
+        if (this.shake > 0) {
+            const sx = (Math.random() - 0.5) * this.shake;
+            const sy = (Math.random() - 0.5) * this.shake;
+            this.ctx.translate(sx, sy);
+            this.shake *= 0.85; // Natural decay
+            if (this.shake < 0.1) this.shake = 0;
+        }
+
+        // Clear (with margin for shake)
+        this.ctx.clearRect(-100, -100, this.canvas.width + 200, this.canvas.height + 200);
+
+        // Reset potential clears
+        this.potentialClears = { rows: [], cols: [] };
+
+        // Logic: Calculate potential clears based on drag
         if (this.draggingBlock) {
             const block = this.blocks[this.draggingBlock.index];
             const placement = this.calculateGridPlacement(block);
             if (placement) {
-                this.drawGhost(placement.gridCol, placement.gridRow, block);
+                const newPotential = this.getPotentialClears(block.shape, placement.gridCol, placement.gridRow);
+                const key = `R:${newPotential.rows.join(',')}|C:${newPotential.cols.join(',')}`;
+                if (key !== this.lastPlacementKey) {
+                    this.previewStartTime = Date.now();
+                    this.lastPlacementKey = key;
+                }
+                this.potentialClears = newPotential;
+            } else {
+                this.lastPlacementKey = "";
+            }
+        } else {
+            this.lastPlacementKey = "";
+        }
+
+        // Draw Grid
+        this.renderGrid(themeFactor);
+
+        // Draw Tray Blocks
+        this.blocks.forEach(block => {
+            if (block.placed) return;
+            this.drawBlock(block, themeFactor);
+        });
+
+        // Effects
+        this.updateAndDrawParticles();
+        this.updateAndDrawFloatingTexts();
+
+        // Debug Ghost
+        if (this.draggingBlock) {
+            const block = this.blocks[this.draggingBlock.index];
+            const placement = this.calculateGridPlacement(block);
+            if (placement) {
+                this.drawGhost(placement.gridCol, placement.gridRow, block, themeFactor);
+            }
+        }
+
+        this.ctx.restore();
+    }
+
+    updateAndDrawFloatingTexts() {
+        for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
+            const ft = this.floatingTexts[i];
+            ft.y -= 1.2;
+            ft.life -= 0.015;
+
+            if (ft.life <= 0) {
+                this.floatingTexts.splice(i, 1);
+            } else {
+                this.ctx.save();
+                this.ctx.globalAlpha = ft.life;
+                this.ctx.fillStyle = ft.color;
+                this.ctx.font = `bold ${22 + (1 - ft.life) * 12}px Outfit`;
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(ft.text, ft.x, ft.y);
+                this.ctx.restore();
             }
         }
     }
 
-    drawBlock(block) {
+    drawBlock(block, themeFactor = 1.0) {
         const cellS = this.metrics.cellSize * block.currentScale;
         const gap = CONFIG.BLOCK_GAP * block.currentScale;
         const r = 4 * block.currentScale;
 
-        // Center the shape around block.x, block.y
         const rows = block.shape.length;
         const cols = block.shape[0].length;
         const width = cols * cellS;
@@ -566,14 +1179,19 @@ class Game {
         const startX = block.x - (width / 2);
         const startY = block.y - (height / 2);
 
-        // Shadow for lifting effect
         if (block.isDragging) {
             this.ctx.shadowColor = 'rgba(0,0,0,0.2)';
             this.ctx.shadowBlur = 20;
             this.ctx.shadowOffsetY = 15;
         }
 
-        this.ctx.fillStyle = block.color;
+        let drawColor = block.color;
+        if (this.themeTransition.active) {
+            const fromRGB = this.themeTransition.from.rgb;
+            const toRGB = this.themeTransition.to.rgb;
+            drawColor = this.lerpColor(fromRGB, toRGB, themeFactor);
+        }
+        this.ctx.fillStyle = drawColor;
 
         for (let y = 0; y < rows; y++) {
             for (let x = 0; x < cols; x++) {
@@ -581,19 +1199,24 @@ class Game {
                     const dx = startX + (x * cellS) + gap / 2;
                     const dy = startY + (y * cellS) + gap / 2;
                     const s = cellS - gap;
-
                     this.drawRoundedRect(dx, dy, s, s, r);
                     this.ctx.fill();
                 }
             }
         }
-
         this.ctx.shadowColor = 'transparent';
     }
 
-    drawGhost(col, row, block) {
+    drawGhost(col, row, block, themeFactor = 1.0) {
         this.ctx.globalAlpha = 0.3;
-        this.ctx.fillStyle = block.color;
+
+        let drawColor = block.color;
+        if (this.themeTransition.active) {
+            const fromRGB = this.themeTransition.from.rgb;
+            const toRGB = this.themeTransition.to.rgb;
+            drawColor = this.lerpColor(fromRGB, toRGB, themeFactor);
+        }
+        this.ctx.fillStyle = drawColor;
 
         const gs = this.metrics.cellSize;
         const gap = CONFIG.BLOCK_GAP;
@@ -637,7 +1260,11 @@ class Game {
     }
 
     loop() {
-        this.render();
+        try {
+            this.render();
+        } catch (e) {
+            console.error("Render Loop Error:", e);
+        }
         requestAnimationFrame(() => this.loop());
     }
 }
