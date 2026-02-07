@@ -17,11 +17,11 @@ const THEMES = {
     dark: {
         id: 'dark',
         icon: '🌙',
-        colors: ['#4B4B4B'],
-        rgb: [75, 75, 75],
-        bgRGB: { top: [15, 15, 15], bottom: [26, 26, 26] },
-        gridBG: 'rgba(255, 255, 255, 0.05)',
-        gridCellBG: 'rgba(255, 255, 255, 0.08)',
+        colors: ['#7C3AED'], // Darker Rich Purple
+        rgb: [124, 58, 237],
+        bgRGB: { top: [8, 0, 20], bottom: [3, 0, 8] }, // Even darker background
+        gridBG: 'rgba(124, 58, 237, 0.1)',
+        gridCellBG: 'rgba(124, 58, 237, 0.15)',
         accent: '#f0f0f0'
     },
     light: {
@@ -30,8 +30,8 @@ const THEMES = {
         colors: ['#3498DB'], // Açık Mavi
         rgb: [52, 152, 219],
         bgRGB: { top: [245, 247, 250], bottom: [195, 207, 226] },
-        gridBG: 'rgba(44, 62, 80, 0.03)',
-        gridCellBG: 'rgba(44, 62, 80, 0.06)',
+        gridBG: 'rgba(44, 62, 80, 0.12)', // Darkened from 0.03
+        gridCellBG: 'rgba(44, 62, 80, 0.18)', // Darkened from 0.06
         accent: '#2C3E50'
     }
 };
@@ -119,6 +119,19 @@ function rotateMatrix90(matrix) {
     }
     return rotated;
 }
+
+function getUniqueRotations(shape) {
+    const rotations = [shape];
+    let current = shape;
+    for (let i = 0; i < 3; i++) {
+        current = rotateMatrix90(current);
+        const currentStr = JSON.stringify(current);
+        if (!rotations.some(r => JSON.stringify(r) === currentStr)) {
+            rotations.push(current);
+        }
+    }
+    return rotations;
+}
 class SoundManager {
     constructor() {
         this.ctx = null;
@@ -202,6 +215,7 @@ class Game {
         this.potentialClears = { rows: [], cols: [] };
         this.previewStartTime = 0;
         this.lastPlacementKey = "";
+        this.activePointerId = null; // Track primary dragging finger
 
         // NEW Advanced Features
         this.sound = new SoundManager();
@@ -279,11 +293,11 @@ class Game {
     }
 
     getThemeBG(themeId) {
-        return themeId === 'dark' ? [40, 40, 40] : [230, 235, 245];
+        return themeId === 'dark' ? [8, 0, 20] : [220, 225, 235]; // Deepest Purple-Black
     }
 
     getCellBG(themeId) {
-        return themeId === 'dark' ? [60, 60, 60] : [210, 220, 235];
+        return themeId === 'dark' ? [15, 5, 30] : [190, 205, 225]; // Deeper Purple
     }
 
     applyTheme(themeId, immediate = false) {
@@ -322,11 +336,28 @@ class Game {
         window.addEventListener('pointermove', (e) => this.handlePointerMove(e));
         window.addEventListener('pointerup', (e) => this.handlePointerUp(e));
 
-        // Right-click rotation for desktop
+        // Global right-click disable for rotation mechanics
         this.canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const pos = this.getPointerPos(e);
+
+            // 1. If dragging, rotate the dragged block
             if (this.draggingBlock) {
-                e.preventDefault();
                 this.rotateBlock(this.blocks[this.draggingBlock.index]);
+                return;
+            }
+
+            // 2. If not dragging, check if clicking a tray block
+            for (const block of this.blocks) {
+                if (block.placed) continue;
+                const hitDist = 60;
+                const dx = pos.x - block.x;
+                const dy = pos.y - block.y;
+                if (Math.sqrt(dx * dx + dy * dy) < hitDist) {
+                    this.rotateBlock(block);
+                    this.updateBlockPositions();
+                    break;
+                }
             }
         });
 
@@ -394,9 +425,15 @@ class Game {
 
     spawnBlocks() {
         this.blocks = [];
+
+        // --- Difficulty Calculation ---
+        // difficulty ranges from 0.0 (starter) to 1.0 (max)
+        const difficulty = Math.min(1.0, this.score / 10000);
+
+        // 1. Get Fitting Shapes
         const fittingShapes = this.getFittingShapes();
 
-        // Calculate Grid Fullness
+        // 2. Calculate Grid Fullness
         let occupied = 0;
         for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
             for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
@@ -413,10 +450,9 @@ class Game {
             attempts++;
             const currentPool = [];
 
-            // 1. Generate a pool of shapes that favor "Good" placements
+            // Evaluat board health for each shape
             for (const shape of fittingShapes) {
                 let bestScore = -Infinity;
-                // Evaluate all possible placements for this shape
                 for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
                     for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
                         if (this.canPlace(shape, c, r)) {
@@ -426,46 +462,77 @@ class Game {
                         }
                     }
                 }
-                currentPool.push({ shape, score: bestScore });
+
+                // --- Difficulty Adjustment on Shape Weight ---
+                // Larger shapes get a slight 'score' boost at high difficulty to be picked more often
+                const shapeSize = shape.flat().filter(x => x === 1).length;
+                let weighting = 0;
+                if (difficulty > 0.3 && shapeSize >= 4) weighting += (difficulty * 20);
+                if (shapeSize === 1) weighting -= (difficulty * 5); // Slightly favor other things over single blocks at high diff, but still keep them possible
+
+                currentPool.push({ shape, score: bestScore + weighting });
             }
 
-            // 2. Sample 3 blocks, prioritizing those with higher scores (better for board health)
-            // Sort by score
+            // Sort by adjusted score
             currentPool.sort((a, b) => b.score - a.score);
 
-            // Difficulty adjustment:
-            // High fullness (>70%): Take only from top 30% of pool
-            // Mid fullness (30-70%): Mix
-            // Low fullness (<30%): Favor larger/challenging blocks
-            let poolToUse = [];
-            if (fullness > 0.7) {
-                poolToUse = currentPool.slice(0, Math.ceil(currentPool.length * 0.3));
-            } else if (fullness < 0.3) {
-                // Tahta çok boşsa skorun en iyisine bakmak yerine rastgele/zorlayıcı seç
-                poolToUse = currentPool.slice(Math.floor(currentPool.length * 0.4));
-            } else {
-                poolToUse = currentPool.slice(0, Math.ceil(currentPool.length * 0.7));
-            }
+            // --- Mercy Logic vs Difficulty ---
+            // Early game: Add more randomness/entropy to avoid repetitive sets
+            // We'll shuffle the top part of the pool slightly or increase pool range
 
-            if (poolToUse.length === 0) poolToUse = currentPool;
+            let mercyRange = 0.2 + (difficulty * 0.6); // 0.2 to 0.8
+            // If difficulty is low, force a larger pool to avoid "same blocks" syndrome
+            if (difficulty < 0.2) mercyRange = Math.max(mercyRange, 0.5);
 
-            // Pick 3 from pool
+            // If grid is very full, always be a bit more merciful
+            if (fullness > 0.7) mercyRange = Math.max(0.2, mercyRange - 0.3);
+
+            const poolLimit = Math.ceil(currentPool.length * mercyRange);
+            let poolToUse = currentPool.slice(0, poolLimit);
+
+            // Shuffle the poolToUse slightly to provide variety even among "good" blocks
+            poolToUse = poolToUse.sort(() => Math.random() - 0.5);
+
+            if (poolToUse.length === 0) break;
+
             const selection = [];
+            const tempPool = [...poolToUse];
+
             for (let j = 0; j < 3; j++) {
-                const item = poolToUse[Math.floor(Math.random() * poolToUse.length)];
+                if (tempPool.length === 0) break;
+
+                // Favor variety: Try to pick a shape we haven't picked for this set yet
+                let pickedIndex = Math.floor(Math.random() * tempPool.length);
+                const item = tempPool[pickedIndex];
                 selection.push(item.shape);
+
+                // Remove similar shapes from temp pool to force variety in these 3
+                if (tempPool.length > 5) { // Only force variety if we have enough options
+                    const itemStr = JSON.stringify(item.shape);
+                    for (let k = tempPool.length - 1; k >= 0; k--) {
+                        if (JSON.stringify(tempPool[k].shape) === itemStr) {
+                            tempPool.splice(k, 1);
+                        }
+                    }
+                }
             }
 
-            // 3. SEQUENCE VALIDATION: Check if ALL THREE can be placed in SOME order
+            if (selection.length < 3) {
+                // Not enough unique ones? Fill rest with randoms from full poolToUse
+                while (selection.length < 3) {
+                    selection.push(poolToUse[Math.floor(Math.random() * poolToUse.length)].shape);
+                }
+            }
+
+            // SEQUENCE VALIDATION
             if (this.checkSequenceStep(this.grid, selection)) {
                 candidates = selection;
                 break;
             }
         }
 
-        // Fallback if no valid sequence found after MAX_ATTEMPTS
+        // Fallback
         if (candidates.length < 3) {
-            // Pick smallest shapes if stuck
             const smallShapes = SHAPES.filter(s => s.flat().filter(x => x === 1).length <= 2);
             for (let i = 0; i < 3; i++) {
                 candidates.push(smallShapes[Math.floor(Math.random() * smallShapes.length)]);
@@ -475,7 +542,7 @@ class Game {
         for (let i = 0; i < 3; i++) {
             const color = CONFIG.COLORS[Math.floor(Math.random() * CONFIG.COLORS.length)];
             this.blocks.push({
-                shape: candidates[i].map(row => [...row]), // Deep clone
+                shape: candidates[i].map(row => [...row]),
                 color: color,
                 x: 0,
                 y: 0,
@@ -523,81 +590,83 @@ class Game {
         this.sound.init();
 
         const pos = this.getPointerPos(e);
-        this.pointer.isDown = true;
-        this.pointer.x = pos.x;
-        this.pointer.y = pos.y;
 
-        // Check availability
-        // Reversed for hit testing (draw order)
-        for (let i = 0; i < this.blocks.length; i++) {
-            const block = this.blocks[i];
-            if (block.placed) continue;
-
-            // Simple Circle Hit Test
-            const hitDist = 60;
-            const dx = pos.x - block.x;
-            const dy = pos.y - block.y;
-
-            if (Math.sqrt(dx * dx + dy * dy) < hitDist) {
-                // LIFT LOGIC:
-                // We want: block.x = mouse.x
-                //          block.y = mouse.y - 120 (Lifted up)
-
-                const isTouch = e.pointerType === 'touch';
-                this.draggingBlock = {
-                    index: i,
-                    liftHeight: isTouch ? 150 : 100, // Higher lift for fingers
-                    startScale: block.currentScale
-                };
-
-                block.isDragging = true;
-                block.currentScale = 1.0;
-
-                // Snap to lifted position immediately
-                block.x = pos.x;
-                block.y = pos.y - this.draggingBlock.liftHeight;
-                break;
-            }
+        // Multi-touch rotation check (Mobile Only)
+        if (this.draggingBlock && e.pointerType === 'touch' && this.activePointerId !== null && e.pointerId !== this.activePointerId) {
+            this.rotateBlock(this.blocks[this.draggingBlock.index]);
+            return;
         }
 
-        // Multi-touch rotation check (if already dragging)
-        if (this.pointer.isDown && this.draggingBlock && e.pointerType === 'touch') {
-            // This is a second+ pointer down while dragging
-            this.rotateBlock(this.blocks[this.draggingBlock.index]);
+        // Only start a new drag if not already dragging and not a right-click
+        if (!this.draggingBlock) {
+            const isRightClick = e.button === 2 || e.which === 3;
+            if (isRightClick) return; // Handled by contextmenu listener
+
+            // Check availability
+            for (let i = 0; i < this.blocks.length; i++) {
+                const block = this.blocks[i];
+                if (block.placed) continue;
+
+                const hitDist = 60;
+                const dx = pos.x - block.x;
+                const dy = pos.y - block.y;
+
+                if (Math.sqrt(dx * dx + dy * dy) < hitDist) {
+                    const isTouch = e.pointerType === 'touch';
+                    this.pointer.isDown = true;
+                    this.pointer.x = pos.x;
+                    this.pointer.y = pos.y;
+                    this.activePointerId = e.pointerId;
+
+                    this.draggingBlock = {
+                        index: i,
+                        liftHeight: isTouch ? 150 : 100,
+                        startScale: block.currentScale
+                    };
+
+                    block.isDragging = true;
+                    block.currentScale = 1.0;
+                    block.x = pos.x;
+                    block.y = pos.y - this.draggingBlock.liftHeight;
+                    return;
+                }
+            }
         }
     }
 
     handlePointerMove(e) {
+        if (this.draggingBlock && e.pointerId !== this.activePointerId) return;
+
         const pos = this.getPointerPos(e);
         this.pointer.x = pos.x;
         this.pointer.y = pos.y;
 
         if (this.draggingBlock) {
             const block = this.blocks[this.draggingBlock.index];
-            // Follow mouse exactly, but shifted UP
             block.x = pos.x;
             block.y = pos.y - this.draggingBlock.liftHeight;
         }
     }
 
     handlePointerUp(e) {
+        if (this.draggingBlock && e.pointerId !== this.activePointerId) return;
+
         if (this.draggingBlock) {
             const idx = this.draggingBlock.index;
             const block = this.blocks[idx];
 
-            // Attempt place
             const placedParams = this.calculateGridPlacement(block);
 
             if (placedParams) {
                 this.placeBlock(block, placedParams.gridCol, placedParams.gridRow);
             } else {
-                // Return to tray
                 block.isDragging = false;
                 block.currentScale = block.baseScale;
-                this.updateBlockPositions(); // Snaps back
+                this.updateBlockPositions();
             }
 
             this.draggingBlock = null;
+            this.activePointerId = null;
         }
         this.pointer.isDown = false;
     }
@@ -658,13 +727,18 @@ class Game {
     getFittingShapes() {
         const fitting = [];
         for (const shape of SHAPES) {
+            const rotations = getUniqueRotations(shape);
             let canFit = false;
-            for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
-                for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
-                    if (this.canPlace(shape, c, r)) {
-                        canFit = true;
-                        break;
+
+            for (const rotShape of rotations) {
+                for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+                    for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                        if (this.canPlace(rotShape, c, r)) {
+                            canFit = true;
+                            break;
+                        }
                     }
+                    if (canFit) break;
                 }
                 if (canFit) break;
             }
@@ -749,30 +823,33 @@ class Game {
     checkSequenceStep(grid, remainingShapes) {
         if (remainingShapes.length === 0) return true;
 
-        const shape = remainingShapes[0];
+        const baseShape = remainingShapes[0];
+        const rotations = getUniqueRotations(baseShape);
         const nextRemaining = remainingShapes.slice(1);
 
-        for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
-            for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
-                // Check if can place (using a local canPlace logic on grid)
-                let canFit = true;
-                for (let sr = 0; sr < shape.length; sr++) {
-                    for (let sc = 0; sc < shape[sr].length; sc++) {
-                        if (shape[sr][sc] === 1) {
-                            const tr = r + sr;
-                            const tc = c + sc;
-                            if (tr < 0 || tr >= CONFIG.GRID_SIZE || tc < 0 || tc >= CONFIG.GRID_SIZE || grid[tr][tc] !== null) {
-                                canFit = false;
-                                break;
+        for (const shape of rotations) {
+            for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+                for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                    // Optimized canFit check
+                    let canFit = true;
+                    for (let sr = 0; sr < shape.length; sr++) {
+                        for (let sc = 0; sc < shape[sr].length; sc++) {
+                            if (shape[sr][sc] === 1) {
+                                const tr = r + sr;
+                                const tc = c + sc;
+                                if (tr < 0 || tr >= CONFIG.GRID_SIZE || tc < 0 || tc >= CONFIG.GRID_SIZE || grid[tr][tc] !== null) {
+                                    canFit = false;
+                                    break;
+                                }
                             }
                         }
+                        if (!canFit) break;
                     }
-                    if (!canFit) break;
-                }
 
-                if (canFit) {
-                    const nextGrid = this.simulatePlacement(grid, shape, c, r);
-                    if (this.checkSequenceStep(nextGrid, nextRemaining)) return true;
+                    if (canFit) {
+                        const nextGrid = this.simulatePlacement(grid, shape, c, r);
+                        if (this.checkSequenceStep(nextGrid, nextRemaining)) return true;
+                    }
                 }
             }
         }
@@ -978,13 +1055,18 @@ class Game {
 
         // Loop through all available blocks
         for (const block of available) {
-            // Try every position on grid
-            for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
-                for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
-                    if (this.canPlace(block.shape, c, r)) {
-                        canMove = true;
-                        break;
+            const rotations = getUniqueRotations(block.shape);
+
+            for (const rotShape of rotations) {
+                // Try every position on grid
+                for (let r = 0; r < CONFIG.GRID_SIZE; r++) {
+                    for (let c = 0; c < CONFIG.GRID_SIZE; c++) {
+                        if (this.canPlace(rotShape, c, r)) {
+                            canMove = true;
+                            break;
+                        }
                     }
+                    if (canMove) break;
                 }
                 if (canMove) break;
             }

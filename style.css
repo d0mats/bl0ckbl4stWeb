@@ -9,14 +9,14 @@
 
 :root[data-theme='dark'] {
     --bg-gradient: linear-gradient(135deg, var(--bg-dynamic-top) 0%, var(--bg-dynamic-bottom) 100%);
-    --glass-bg: rgba(255, 255, 255, 0.03);
-    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-bg: rgba(124, 58, 237, 0.04);
+    --glass-border: rgba(124, 58, 237, 0.15);
     --text-color: #f0f0f0;
-    --text-muted: #888;
+    --text-muted: #8b5cf6;
     --primary-font: 'Outfit', sans-serif;
-    --shadow-soft: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-    --modal-bg: rgba(0, 0, 0, 0.85);
-    --modal-content-bg: #1a1a1a;
+    --shadow-soft: 0 8px 32px 0 rgba(0, 0, 0, 0.9);
+    --modal-bg: rgba(4, 0, 10, 0.95);
+    --modal-content-bg: #080014;
 }
 
 :root[data-theme='light'] {
