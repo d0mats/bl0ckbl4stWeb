@@ -65,14 +65,15 @@ body {
     max-width: 600px;
     display: flex;
     flex-direction: column;
-    padding: 20px;
+    padding: min(4vw, 20px) min(4vw, 20px) 10px;
+    /* Reduced bottom padding */
 }
 
 .game-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: clamp(10px, 3vh, 20px);
     padding: 0 10px;
 }
 
@@ -359,5 +360,55 @@ canvas {
     to {
         transform: scale(1);
         opacity: 1;
+    }
+}
+
+/* Small Screen Optimizations */
+@media (max-height: 700px) {
+    .game-title {
+        font-size: 1.2rem;
+    }
+
+    .score-value {
+        font-size: 1.2rem;
+    }
+
+    #score-value {
+        font-size: 1.2rem;
+    }
+
+    .score-container {
+        padding: 4px 10px;
+        gap: 12px;
+    }
+
+    .icon-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 1rem;
+    }
+
+    .game-header {
+        margin-bottom: 10px;
+    }
+
+    .game-footer {
+        padding: 5px 10px;
+    }
+
+    .creator-tag {
+        font-size: 0.75rem;
+    }
+}
+
+@media (max-height: 600px) {
+    .game-title {
+        display: none;
+        /* Hide title on extremely short screens to favor grid */
+    }
+
+    .game-header {
+        justify-content: flex-end;
+        /* Align remaining items to right */
     }
 }

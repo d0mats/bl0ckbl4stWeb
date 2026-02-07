@@ -107,7 +107,18 @@ const SHAPES = [
 ];
 
 
-// --- Class: SoundManager ---
+// --- Helpers ---
+function rotateMatrix90(matrix) {
+    const rows = matrix.length;
+    const cols = matrix[0].length;
+    const rotated = Array(cols).fill().map(() => Array(rows).fill(0));
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            rotated[c][rows - 1 - r] = matrix[r][c];
+        }
+    }
+    return rotated;
+}
 class SoundManager {
     constructor() {
         this.ctx = null;
@@ -311,6 +322,14 @@ class Game {
         window.addEventListener('pointermove', (e) => this.handlePointerMove(e));
         window.addEventListener('pointerup', (e) => this.handlePointerUp(e));
 
+        // Right-click rotation for desktop
+        this.canvas.addEventListener('contextmenu', (e) => {
+            if (this.draggingBlock) {
+                e.preventDefault();
+                this.rotateBlock(this.blocks[this.draggingBlock.index]);
+            }
+        });
+
         // Start
         this.spawnBlocks();
         this.loop();
@@ -333,12 +352,17 @@ class Game {
         this.metrics.height = h;
 
         // Adaptive Grid Size
-        const padding = 20;
         const isPortrait = h > w;
+        const padding = isPortrait ? 10 : 20; // Reduced padding for portrait
 
         const availableWidth = w - (padding * 2);
-        // On mobile portrait, give the grid more vertical room
-        const availableHeight = isPortrait ? h * 0.5 : h * 0.6;
+
+        // On small heights, be more aggressive with space
+        let verticalLimitFactor = 0.5;
+        if (h < 700) verticalLimitFactor = 0.55;
+        if (h < 600) verticalLimitFactor = 0.6;
+
+        const availableHeight = isPortrait ? h * verticalLimitFactor : h * 0.6;
 
         const gridPixelSize = Math.min(availableWidth, availableHeight, 500);
 
@@ -346,11 +370,23 @@ class Game {
         this.metrics.cellSize = gridPixelSize / CONFIG.GRID_SIZE;
 
         this.metrics.gridX = (w - gridPixelSize) / 2;
-        // On portrait, move it slightly down to leave room for header
-        this.metrics.gridY = isPortrait ? 80 : padding + 10;
 
-        // Block Area (Tray) - Push to bottom on mobile
-        const traySpacing = isPortrait ? 60 : 40;
+        // Push grid higher on short screens
+        let gridTopOffset = 80;
+        if (isPortrait) {
+            if (h < 700) gridTopOffset = 60;
+            if (h < 600) gridTopOffset = 45;
+        } else {
+            gridTopOffset = padding + 10;
+        }
+
+        this.metrics.gridY = gridTopOffset;
+
+        // Block Area (Tray) - Adjust spacing based on height
+        let traySpacing = isPortrait ? 60 : 40;
+        if (isPortrait && h < 700) traySpacing = 40;
+        if (isPortrait && h < 600) traySpacing = 30;
+
         this.metrics.blockAreaY = this.metrics.gridY + gridPixelSize + traySpacing;
 
         this.updateBlockPositions();
@@ -439,12 +475,14 @@ class Game {
         for (let i = 0; i < 3; i++) {
             const color = CONFIG.COLORS[Math.floor(Math.random() * CONFIG.COLORS.length)];
             this.blocks.push({
-                shape: candidates[i],
+                shape: candidates[i].map(row => [...row]), // Deep clone
                 color: color,
                 x: 0,
                 y: 0,
                 baseScale: 0.6,
                 currentScale: 0.6,
+                rotationAnim: 0,
+                rotationTarget: 0,
                 isDragging: false,
                 placed: false
             });
@@ -505,7 +543,7 @@ class Game {
                 // We want: block.x = mouse.x
                 //          block.y = mouse.y - 120 (Lifted up)
 
-                const isTouch = e.type.startsWith('touch');
+                const isTouch = e.pointerType === 'touch';
                 this.draggingBlock = {
                     index: i,
                     liftHeight: isTouch ? 150 : 100, // Higher lift for fingers
@@ -520,6 +558,12 @@ class Game {
                 block.y = pos.y - this.draggingBlock.liftHeight;
                 break;
             }
+        }
+
+        // Multi-touch rotation check (if already dragging)
+        if (this.pointer.isDown && this.draggingBlock && e.pointerType === 'touch') {
+            // This is a second+ pointer down while dragging
+            this.rotateBlock(this.blocks[this.draggingBlock.index]);
         }
     }
 
@@ -797,6 +841,22 @@ class Game {
         } else {
             this.checkGameOver();
         }
+    }
+
+    rotateBlock(block) {
+        if (!block || block.placed) return;
+
+        // Update logical shape
+        block.shape = rotateMatrix90(block.shape);
+
+        // Visual offset animation:
+        // We jumped logically 90deg, so we set visual offset to -90deg
+        // and let it spring back to 0.
+        block.rotationAnim = -Math.PI / 2;
+
+        // Feedback
+        this.sound.playTick();
+        this.shake = 2; // Subtle feedback shake
     }
 
     spawnParticles(gx, gy, color) {
@@ -1121,6 +1181,16 @@ class Game {
             this.lastPlacementKey = "";
         }
 
+        // Interpolate rotation for all blocks
+        this.blocks.forEach(block => {
+            if (Math.abs(block.rotationAnim) > 0.001) {
+                // Spring-ish interpolation back to 0
+                block.rotationAnim *= 0.8;
+            } else {
+                block.rotationAnim = 0;
+            }
+        });
+
         // Draw Grid
         this.renderGrid(themeFactor);
 
@@ -1176,8 +1246,12 @@ class Game {
         const width = cols * cellS;
         const height = rows * cellS;
 
-        const startX = block.x - (width / 2);
-        const startY = block.y - (height / 2);
+        this.ctx.save();
+        this.ctx.translate(block.x, block.y);
+        this.ctx.rotate(block.rotationAnim);
+
+        const startX = -(width / 2);
+        const startY = -(height / 2);
 
         if (block.isDragging) {
             this.ctx.shadowColor = 'rgba(0,0,0,0.2)';
@@ -1193,6 +1267,8 @@ class Game {
         }
         this.ctx.fillStyle = drawColor;
 
+        // Note: For rotated blocks, we need to draw the cells based on the CURRENT shape data
+        // If the shape was logically rotated, the startX/startY logic needs to stay centered
         for (let y = 0; y < rows; y++) {
             for (let x = 0; x < cols; x++) {
                 if (block.shape[y][x] === 1) {
@@ -1204,10 +1280,11 @@ class Game {
                 }
             }
         }
-        this.ctx.shadowColor = 'transparent';
+        this.ctx.restore();
     }
 
     drawGhost(col, row, block, themeFactor = 1.0) {
+        this.ctx.save();
         this.ctx.globalAlpha = 0.3;
 
         let drawColor = block.color;
@@ -1234,7 +1311,7 @@ class Game {
                 }
             }
         }
-        this.ctx.globalAlpha = 1.0;
+        this.ctx.restore();
     }
 
     updateAndDrawParticles() {
