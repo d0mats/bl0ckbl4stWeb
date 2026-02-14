@@ -247,16 +247,11 @@ canvas {
 .ad-placeholder {
     width: 100%;
     max-width: 300px;
-    height: 120px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px dashed var(--glass-border);
-    border-radius: 16px;
+    min-height: 100px;
     display: flex;
     justify-content: center;
     align-items: center;
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    letter-spacing: 1px;
+    overflow: hidden;
 }
 
 /* Premium Button */
@@ -297,16 +292,11 @@ canvas {
 
 .skyscraper-ad {
     width: 160px;
-    height: 600px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 2px dashed rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
+    min-height: 600px;
     display: flex;
     justify-content: center;
     align-items: center;
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    text-align: center;
+    overflow: hidden;
 }
 
 @media (max-width: 1000px) {
